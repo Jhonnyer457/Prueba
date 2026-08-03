@@ -1,0 +1,19 @@
+{
+  "name": "teledrive",
+  "version": "1.0.0",
+  "description": "Gestor de almacenamiento en la nube usando Telegram como backend",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "telegram": "^2.24.11"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10",
+    "vite-plugin-pwa": "^0.20.5",
+    "vite-plugin-node-polyfills": "^0.22.0"
+  }
+}
