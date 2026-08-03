@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>☁️ TeleDrive</title>
+    <meta name="theme-color" content="#000000">
+    <style>
+        :root {
+            --bg-color: #000000;
+            --surface-color: #121212;
+            --surface-card: #1e1e1e;
+            --text-primary: #ffffff;
+            --text-secondary: #aaaaaa;
+            --accent: #8b5cf6;
+            --accent-hover: #7c3aed;
+            --border: #2a2a2a;
+        }
+
+        [data-theme="light"] {
+            --bg-color: #f8fafc;
+            --surface-color: #ffffff;
+            --surface-card: #f1f5f9;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --accent: #7c3aed;
+            --accent-hover: #6d28d9;
+            --border: #e2e8f0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            height: 100vh;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #starfield {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.3;
+        }
+
+        header {
+            height: 60px;
+            background-color: var(--surface-color);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            z-index: 10;
+        }
+
+        .logo {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .settings-btn {
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-size: 1.4rem;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+        }
+
+        .settings-btn:active {
+            background-color: var(--border);
+        }
+
+        main {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            z-index: 1;
+            padding-bottom: 80px;
+        }
+
+        nav {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 65px;
+            background-color: var(--surface-color);
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .nav-item {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            flex: 1;
+            height: 100%;
+            justify-content: center;
+            transition: color 0.2s;
+        }
+
+        .nav-item.active {
+            color: var(--accent);
+        }
+
+        .nav-item svg {
+            width: 22px;
+            height: 22px;
+            fill: currentColor;
+        }
+
+        .fab {
+            position: absolute;
+            bottom: 80px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            background-color: var(--accent);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            border: none;
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+            cursor: pointer;
+            z-index: 20;
+            transition: transform 0.2s;
+        }
+
+        .fab:active {
+            transform: scale(0.92);
+        }
+
+        .view {
+            display: none;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        .list-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .item-row {
+            background-color: var(--surface-card);
+            padding: 12px 16px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .item-row:active {
+            background-color: var(--border);
+        }
+
+        .item-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            overflow: hidden;
+        }
+
+        .item-icon {
+            font-size: 1.5rem;
+        }
+
+        .item-name {
+            font-size: 0.95rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #login-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .login-card {
+            background-color: var(--surface-color);
+            border: 1px solid var(--border);
+            padding: 24px;
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .input-group label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .input-group input {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border);
+            padding: 12px;
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 1rem;
+            outline: none;
+        }
+
+        .input-group input:focus {
+            border-color: var(--accent);
+        }
+
+        .btn-primary {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-primary:active {
+            background-color: var(--accent-hover);
+        }
+
+        .dropdown-menu {
+            position: absolute;
+            top: 65px;
+            right: 16px;
+            background-color: var(--surface-color);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            width: 200px;
+            display: none;
+            flex-direction: column;
+            z-index: 50;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .dropdown-menu.show {
+            display: flex;
+        }
+
+        .dropdown-item {
+            padding: 12px 16px;
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            text-align: left;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .dropdown-item:active {
+            background-color: var(--border);
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(3px);
+            z-index: 200;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal-card {
+            background-color: var(--surface-color);
+            border: 1px solid var(--border);
+            width: 100%;
+            max-width: 340px;
+            padding: 20px;
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="starfield"></canvas>
+
+    <div id="login-screen">
+        <div class="login-card">
+            <h2>☁️ TeleDrive Login</h2>
+            <p style="font-size: 0.85rem; color: var(--text-secondary);">Conéctate con tus credenciales de my.telegram.org</p>
+            <div class="input-group">
+                <label>API ID</label>
+                <input type="number" id="api-id" placeholder="Ej: 1234567">
+            </div>
+            <div class="input-group">
+                <label>API Hash</label>
+                <input type="text" id="api-hash" placeholder="Ej: 32b17...abc">
+            </div>
+            <div class="input-group">
+                <label>Teléfono (+Código país)</label>
+                <input type="text" id="phone" placeholder="+34600000000">
+            </div>
+            <button class="btn-primary" id="btn-login">Siguiente</button>
+        </div>
+    </div>
+
+    <header>
+        <div class="logo">☁️ TeleDrive</div>
+        <button class="settings-btn" id="settings-toggle">⚙️</button>
+        <div class="dropdown-menu" id="settings-menu">
+            <button class="dropdown-item" id="theme-toggle-btn">Cambiar Tema</button>
+            <button class="dropdown-item" id="sync-btn">Sincronizar</button>
+            <button class="dropdown-item" id="logout-btn" style="color: #ef4444;">Cerrar Sesión</button>
+        </div>
+    </header>
+
+    <main>
+        <div id="view-home" class="view active">
+            <h3 id="current-path-title" style="margin-bottom: 12px; font-size: 1rem; color: var(--text-secondary);">📂 Mis Carpetas</h3>
+            <div class="list-container" id="folder-list"></div>
+        </div>
+
+        <div id="view-downloads" class="view">
+            <h3 style="margin-bottom: 12px; font-size: 1rem; color: var(--text-secondary);">📥 Actividad y Progreso</h3>
+            <div class="list-container" id="downloads-list">
+                <p style="color: var(--text-secondary); text-align: center; margin-top: 40px;">No hay transferencias activas</p>
+            </div>
+        </div>
+
+        <div id="view-media" class="view">
+            <h3 style="margin-bottom: 12px; font-size: 1rem; color: var(--text-secondary);">🎬 Galería Multimedia</h3>
+            <div id="media-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;"></div>
+        </div>
+    </main>
+
+    <button class="fab" id="fab-btn">+</button>
+
+    <nav>
+        <button class="nav-item active" data-target="view-home">
+            <svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+            Inicio
+        </button>
+        <button class="nav-item" data-target="view-downloads">
+            <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+            Descargas
+        </button>
+        <button class="nav-item" data-target="view-media">
+            <svg viewBox="0 0 24 24"><path d="M21 3H3C2 3 1 4 1 5v14c0 1.1.9 2 2 2h18c1 0 2-1 2-2V5c0-1-1-2-2-2zM5 17l3.5-4.5 2.5 3.01L15.5 11l4.5 6H5z"/></svg>
+            Multimedia
+        </button>
+    </nav>
+
+    <div class="modal-overlay" id="folder-modal">
+        <div class="modal-card">
+            <h3>Nueva Carpeta</h3>
+            <div class="input-group">
+                <label>Nombre de la carpeta</label>
+                <input type="text" id="new-folder-name" placeholder="Ej: Películas, Documentos...">
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button class="btn-primary" style="background: transparent; color: var(--text-primary);" id="close-modal">Cancelar</button>
+                <button class="btn-primary" id="confirm-create-folder">Crear</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('starfield');
+            const ctx = canvas.getContext('2d');
+            let width, height, stars = [];
+
+            function initStars() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+                stars = [];
+                for (let i = 0; i < 50; i++) {
+                    stars.push({
+                        x: Math.random() * width,
+                        y: Math.random() * height,
+                        radius: Math.random() * 1.5,
+                        alpha: Math.random()
+                    });
+                }
+            }
+
+            function drawStars() {
+                ctx.clearRect(0, 0, width, height);
+                ctx.fillStyle = document.documentElement.getAttribute('data-theme') === 'dark' ? '#ffffff' : '#7c3aed';
+                stars.forEach(s => {
+                    ctx.globalAlpha = s.alpha;
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+                requestAnimationFrame(drawStars);
+            }
+
+            window.addEventListener('resize', initStars);
+            initStars();
+            drawStars();
+
+            const navItems = document.querySelectorAll('.nav-item');
+            const views = document.querySelectorAll('.view');
+
+            navItems.forEach(item => {
+                item.addEventListener('click', () => {
+                    navItems.forEach(n => n.classList.remove('active'));
+                    views.forEach(v => v.classList.remove('active'));
+                    item.classList.add('active');
+                    document.getElementById(item.getAttribute('data-target')).classList.add('active');
+                });
+            });
+
+            const settingsToggle = document.getElementById('settings-toggle');
+            const settingsMenu = document.getElementById('settings-menu');
+
+            settingsToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                settingsMenu.classList.toggle('show');
+            });
+
+            document.addEventListener('click', () => {
+                settingsMenu.classList.remove('show');
+            });
+
+            const themeToggleBtn = document.getElementById('theme-toggle-btn');
+            themeToggleBtn.addEventListener('click', () => {
+                const currentTheme = document.documentElement.getAttribute('data-theme');
+                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('teledrive_theme', newTheme);
+            });
+
+            const savedTheme = localStorage.getItem('teledrive_theme');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            }
+
+            const fabBtn = document.getElementById('fab-btn');
+            const folderModal = document.getElementById('folder-modal');
+            const closeModal = document.getElementById('close-modal');
+            const confirmCreateFolder = document.getElementById('confirm-create-folder');
+            const newFolderNameInput = document.getElementById('new-folder-name');
+            const folderList = document.getElementById('folder-list');
+
+            fabBtn.addEventListener('click', () => {
+                folderModal.classList.add('show');
+            });
+
+            closeModal.addEventListener('click', () => {
+                folderModal.classList.remove('show');
+            });
+
+            let folders = JSON.parse(localStorage.getItem('teledrive_folders')) || [
+                { id: 1, name: '📸 Fotos y Videos' },
+                { id: 2, name: '📄 Documentos' },
+                { id: 3, name: '🎵 Música' }
+            ];
+
+            function renderFolders() {
+                folderList.innerHTML = '';
+                folders.forEach(folder => {
+                    const row = document.createElement('div');
+                    row.className = 'item-row';
+                    row.innerHTML = `
+                        <div class="item-info">
+                            <span class="item-icon">📂</span>
+                            <span class="item-name">${folder.name}</span>
+                        </div>
+                        <span style="color: var(--text-secondary); font-size: 0.8rem;">›</span>
+                    `;
+                    folderList.appendChild(row);
+                });
+            }
+
+            confirmCreateFolder.addEventListener('click', () => {
+                const name = newFolderNameInput.value.trim();
+                if (name) {
+                    folders.push({ id: Date.now(), name: name });
+                    localStorage.setItem('teledrive_folders', JSON.stringify(folders));
+                    renderFolders();
+                    newFolderNameInput.value = '';
+                    folderModal.classList.remove('show');
+                }
+            });
+
+            renderFolders();
+
+            const loginScreen = document.getElementById('login-screen');
+            const btnLogin = document.getElementById('btn-login');
+
+            if (localStorage.getItem('teledrive_logged')) {
+                loginScreen.style.display = 'none';
+            }
+
+            btnLogin.addEventListener('click', () => {
+                const apiId = document.getElementById('api-id').value;
+                const apiHash = document.getElementById('api-hash').value;
+                const phone = document.getElementById('phone').value;
+
+                if (!apiId || !apiHash || !phone) {
+                    alert('Por favor, rellena todos los campos de Telegram.');
+                    return;
+                }
+
+                localStorage.setItem('teledrive_logged', 'true');
+                localStorage.setItem('teledrive_api_id', apiId);
+                loginScreen.style.display = 'none';
+            });
+
+            document.getElementById('logout-btn').addEventListener('click', () => {
+                localStorage.clear();
+                location.reload();
+            });
+        });
+    </script>
+</body>
+  </html>
