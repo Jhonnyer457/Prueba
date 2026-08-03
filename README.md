@@ -1,6 +1,17 @@
 # TeleDrive
 
-## Novedades de esta versión (v4)
+## Novedades de esta versión (v5)
+
+- **Arreglo de la lógica de carpetas**: la app ya NO crea nada automáticamente al abrirla. Ahora cada carpeta de **Inicio** es su propio grupo privado en Telegram (con Topics activado), y solo se crea cuando tú pulsas "Crear carpeta". Si entras en esa carpeta y creas otra, esa segunda sí es una **subcarpeta** (un Topic dentro del grupo que ya existe) — solo se permite un nivel de subcarpetas, que es lo máximo que Telegram permite con Topics.
+  - **Importante / migración**: como el índice de carpetas cambió de formato, las carpetas creadas con la v4 (el grupo único "TeleDrive" con Topics) no aparecerán en esta versión. Si tenías archivos ahí, ábrelos desde la app oficial de Telegram y reenvíalos a la carpeta nueva correspondiente.
+- **Arreglo de subida de archivos**: ahora se puede subir cualquier tipo de archivo (documentos, zips, PDFs, etc.), no solo fotos y vídeos.
+- **Arreglo del visor de Multimedia**: al tocar una foto o vídeo se abre un visor a pantalla completa (con opciones de Descargar/Eliminar) en vez de descargarlo automáticamente. Los vídeos ahora también muestran una miniatura real (un frame capturado del vídeo).
+- **"Mensajes guardados" ya no aparece en la app**: sigue existiendo dentro de Telegram como bóveda interna de metadatos (el índice de carpetas), pero no se muestra como una sección de la PWA ni se sube nada de contenido ahí.
+- **Arreglo del tema claro**: la barra superior ya no se queda oscura al activar el tema claro.
+- **Selección múltiple**: en cualquier lista de archivos (y en Multimedia) puedes tocar "Seleccionar" para marcar varios archivos y luego descargarlos o borrarlos todos de una vez.
+- **Botón "+" contextual**: en Inicio crea una carpeta; dentro de una carpeta ofrece "Crear subcarpeta" o "Subir archivos"; dentro de una subcarpeta solo sube archivos; en Multimedia sube fotos/vídeos (te deja elegir a qué carpeta van).
+
+## Novedades de la versión anterior (v4)
 
 - **Canales → Grupo con Temas (Topics)**: cada carpeta ya NO es un canal privado independiente. Ahora existe un único grupo privado llamado "TeleDrive" (con el foro/Topics activado) y cada carpeta es un Tema dentro de ese grupo. Esto es un cambio de arquitectura, no solo visual: **las carpetas que hubieras creado con la versión anterior (canales) no aparecerán aquí**, porque `listFolders()` ahora lee Topics, no canales. Si tenías archivos importantes en esos canales antiguos, ábrelos desde la propia app oficial de Telegram y reenvíalos a la carpeta/tema nueva correspondiente.
 - **Nuevo diseño**: barra inferior fija con **Inicio / Descargas / Multimedia**, botón flotante (+) dinámico (crea carpeta en Inicio, sube archivo dentro de una carpeta), menú de ajustes ahora es un desplegable simple (Cambiar tema, Sincronizar, Cerrar sesión), tema oscuro AMOLED y tema claro violeta, y las carpetas se muestran con el emoji 📂 en vez de un ícono SVG.
@@ -25,9 +36,12 @@
 
 
 PWA de almacenamiento en la nube que usa **Telegram** como backend:
-cada carpeta que creas es un canal privado de Telegram, y "Mensajes guardados"
-funciona como tu almacenamiento principal. Todo corre 100% en el navegador
-(no hay servidor propio), así que se puede alojar gratis en GitHub Pages.
+cada carpeta de nivel superior que creas es un grupo privado de Telegram
+(con Topics activado), y las subcarpetas son Topics dentro de ese grupo.
+"Mensajes guardados" solo se usa internamente para recordar qué grupos son
+tuyos; nunca se muestra ni se sube nada de contenido ahí. Todo corre 100%
+en el navegador (no hay servidor propio), así que se puede alojar gratis en
+GitHub Pages.
 
 ---
 

@@ -61,6 +61,14 @@ export const Icon = {
   user: (s) => wrap('<circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>', s),
 
   inbox: (s) => wrap('<path d="M3.5 12.5h5l1.5 2.5h4l1.5-2.5h5"/><path d="M5 6.5h14l1.5 6v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18.5v-6l1.5-6Z"/>', s),
+
+  checkSquare: (s) => wrap('<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><polyline points="7.5 12.3 10.3 15 16.5 8.5"/>', s),
+
+  square: (s) => wrap('<rect x="3.5" y="3.5" width="17" height="17" rx="3"/>', s),
+
+  playCircle: (s) => wrap('<circle cx="12" cy="12" r="8.5"/><path d="M10 8.5 15.5 12 10 15.5Z" fill="currentColor" stroke="none"/>', s),
+
+  check: (s) => wrap('<polyline points="4.5 12.5 9.5 17.5 19.5 6.5"/>', s),
 };
 
 export function icon(name, size) {

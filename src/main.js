@@ -1,7 +1,7 @@
 import './style.css';
 import * as tg from './telegram.js';
 import { icon } from './icons.js';
-import { confirmDialog, promptDialog } from './modal.js';
+import { confirmDialog, promptDialog, selectDialog } from './modal.js';
 import { initStarfield } from './starfield.js';
 
 const app = document.getElementById('app');
@@ -9,9 +9,12 @@ const THEME_KEY = 'teledrive_theme';
 
 const state = {
   credentials: { id: null, hash: null },
-  activeTab: 'home',            // 'home' | 'downloads' | 'media'
-  currentView: 'folders',       // 'folders' | 'saved' | objeto-carpeta (solo aplica a la pestaña 'home')
-  folders: [],
+  activeTab: 'home',   // 'home' | 'downloads' | 'media'
+  // path vacío = Inicio (lista de carpetas de nivel superior)
+  // path = [topFolder] = dentro de una carpeta (viendo subcarpetas + archivos raíz)
+  // path = [topFolder, subFolder] = dentro de una subcarpeta (viendo sus archivos)
+  path: [],
+  topFolders: [],       // [{id, name}]
   transfers: [],
   loggedIn: false,
 };
@@ -68,22 +71,36 @@ function toast(msg, type = 'info') {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
 }
 function closeAllPopovers() {
-  document.querySelectorAll('.menu-popover, .dropdown-menu').forEach((el) => el.remove());
+  document.querySelectorAll('.menu-popover, .dropdown-menu, .fab-popover').forEach((el) => el.remove());
 }
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.menu-trigger') && !e.target.closest('.menu-popover') &&
-      !e.target.closest('#btn-settings') && !e.target.closest('.dropdown-menu')) {
+      !e.target.closest('#btn-settings') && !e.target.closest('.dropdown-menu') &&
+      !e.target.closest('#fab-main') && !e.target.closest('.fab-popover')) {
     closeAllPopovers();
   }
 });
 
-// ---------- Render raíz ----------
-function render() {
-  if (!tg.hasSavedSession() && !state.loggedIn) {
-    renderLogin();
-  } else {
-    renderApp();
+// Crea (una sola vez) un <input type=file> oculto reutilizable con el
+// "accept" que se necesite en cada momento, y devuelve los archivos
+// elegidos como Promise.
+let sharedFileInput = null;
+function pickFiles({ accept = '' } = {}) {
+  if (!sharedFileInput) {
+    sharedFileInput = document.createElement('input');
+    sharedFileInput.type = 'file';
+    sharedFileInput.multiple = true;
+    sharedFileInput.style.display = 'none';
+    document.body.appendChild(sharedFileInput);
   }
+  sharedFileInput.accept = accept;
+  return new Promise((resolve) => {
+    sharedFileInput.onchange = () => {
+      resolve(sharedFileInput.files);
+      sharedFileInput.value = '';
+    };
+    sharedFileInput.click();
+  });
 }
 
 // ================= LOGIN =================
@@ -212,7 +229,8 @@ async function bootApp() {
       if (!state.credentials.id) await promptCredentialsOnly();
       await tg.reconnect(state.credentials.id, state.credentials.hash);
     }
-    state.folders = await tg.listFolders();
+    // Nunca se crea nada aquí: solo leemos el índice de carpetas ya existentes.
+    state.topFolders = await tg.listTopFolders();
     renderApp();
   } catch (e) {
     console.error(e);
@@ -227,6 +245,14 @@ async function bootApp() {
       state.loggedIn = false;
       render();
     };
+  }
+}
+
+function render() {
+  if (!tg.hasSavedSession() && !state.loggedIn) {
+    renderLogin();
+  } else {
+    renderApp();
   }
 }
 
@@ -255,17 +281,10 @@ function renderApp() {
         <span>Multimedia</span>
       </button>
     </nav>
-
-    <input type="file" id="global-file-input" style="display:none" multiple />
   `;
 
   document.getElementById('btn-settings').onclick = toggleSettingsMenu;
   document.getElementById('fab-main').onclick = onFabClick;
-  document.getElementById('global-file-input').onchange = (e) => {
-    const target = state.currentView === 'saved' ? null : state.currentView;
-    handleFiles(e.target.files, target, target !== null);
-    e.target.value = '';
-  };
 
   document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.onclick = () => switchTab(btn.dataset.tab);
@@ -292,7 +311,8 @@ function toggleSettingsMenu(e) {
     closeAllPopovers();
     toast('Sincronizando con Telegram...');
     try {
-      state.folders = await tg.listFolders();
+      state.topFolders = await tg.listTopFolders();
+      state.path = [];
       renderMain();
       toast('Sincronizado');
     } catch (e) {
@@ -306,18 +326,58 @@ function toggleSettingsMenu(e) {
 function switchTab(tab) {
   state.activeTab = tab;
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
-  document.getElementById('fab-main').style.display = tab === 'home' ? 'flex' : 'none';
+  document.getElementById('fab-main').style.display = tab === 'downloads' ? 'none' : 'flex';
   renderMain();
 }
 
-// ---------- FAB dinámico ----------
-function onFabClick() {
-  if (state.activeTab !== 'home') return;
-  if (state.currentView === 'folders') {
-    createFolderFlow();
-  } else {
-    document.getElementById('global-file-input').click();
+// ---------- FAB dinámico y contextual ----------
+function onFabClick(e) {
+  e.stopPropagation();
+  closeAllPopovers();
+
+  if (state.activeTab === 'media') {
+    mediaUploadFlow();
+    return;
   }
+  if (state.activeTab !== 'home') return;
+
+  if (state.path.length === 0) {
+    // Inicio: la única acción posible es crear una carpeta (= un grupo nuevo)
+    createTopFolderFlow();
+  } else if (state.path.length === 1) {
+    // Dentro de una carpeta: se puede crear una subcarpeta o subir archivos
+    const top = state.path[0];
+    showFabPopover([
+      { label: 'Crear carpeta', iconName: 'folderPlus', act: () => createSubFolderFlow(top) },
+      { label: 'Subir archivos', iconName: 'uploadCloud', act: () => uploadIntoCurrentView() },
+    ]);
+  } else {
+    // Dentro de una subcarpeta: solo se puede subir archivos (1 solo nivel de subcarpetas)
+    uploadIntoCurrentView();
+  }
+}
+
+function showFabPopover(options) {
+  const pop = document.createElement('div');
+  pop.className = 'fab-popover';
+  pop.innerHTML = options
+    .map((o, i) => `<button data-i="${i}">${icon(o.iconName, 17)} ${o.label}</button>`)
+    .join('');
+  document.body.appendChild(pop);
+  pop.querySelectorAll('button').forEach((btn) => {
+    btn.onclick = () => { closeAllPopovers(); options[Number(btn.dataset.i)].act(); };
+  });
+}
+
+async function uploadIntoCurrentView() {
+  const target = state.path[state.path.length - 1];
+  // El campo "id" del objeto carpeta de nivel superior es el id del grupo,
+  // no un topic: si solo estamos a un nivel de profundidad, el destino es
+  // la raíz (topic General). Si estamos en una subcarpeta, "id" ya es el
+  // id del topic correspondiente.
+  const topicId = state.path.length === 1 ? tg.GENERAL_TOPIC_ID : target.id;
+  const files = await pickFiles({ accept: '' });
+  await handleFiles(files, target.entity, topicId, () => renderMain());
 }
 
 // ---------- Router principal ----------
@@ -327,32 +387,23 @@ async function renderMain() {
     renderDownloadsView(main);
   } else if (state.activeTab === 'media') {
     await renderMediaView(main);
-  } else if (state.currentView === 'folders') {
+  } else if (state.path.length === 0) {
     renderFoldersView(main);
-  } else if (state.currentView === 'saved') {
-    await renderChatView(main, { type: 'saved', name: 'Mensajes guardados', iconName: 'save' });
+  } else if (state.path.length === 1) {
+    await renderTopFolderView(main);
   } else {
-    await renderChatView(main, state.currentView);
+    await renderSubFolderView(main);
   }
 }
 
-// ---------- Vista: listado de carpetas (📂 en filas) ----------
+// ---------- Vista: Inicio (carpetas de nivel superior) ----------
 function renderFoldersView(main) {
   main.innerHTML = `
     <div class="view-header"><h2>📂 Inicio</h2></div>
-    <div class="folder-row saved-row" id="row-saved">
-      <div class="folder-row-icon">${icon('save', 20)}</div>
-      <div class="folder-row-info">
-        <div class="folder-row-name">Mensajes guardados</div>
-        <div class="folder-row-meta">Archivos sueltos, fuera de carpetas</div>
-      </div>
-    </div>
     <div class="folder-list" id="folder-list"></div>
   `;
-  document.getElementById('row-saved').onclick = () => { state.currentView = 'saved'; renderMain(); };
-
   const list = document.getElementById('folder-list');
-  if (state.folders.length === 0) {
+  if (state.topFolders.length === 0) {
     list.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon-box">📂</div>
@@ -361,19 +412,20 @@ function renderFoldersView(main) {
     return;
   }
 
-  state.folders.forEach((f) => {
+  state.topFolders.forEach((f) => {
     const row = document.createElement('div');
     row.className = 'folder-row';
     row.innerHTML = `
       <span class="folder-emoji">📂</span>
       <div class="folder-row-info">
         <div class="folder-row-name">${escapeHtml(f.name)}</div>
-        <div class="folder-row-meta" data-count>Calculando...</div>
+        <div class="folder-row-meta">Carpeta (grupo en Telegram)</div>
       </div>
       <button class="icon-btn menu-trigger" data-act="menu">${icon('moreVertical', 18)}</button>
     `;
-    row.querySelector('.folder-row-info').onclick = () => { state.currentView = f; renderMain(); };
-    row.querySelector('.folder-emoji').onclick = () => { state.currentView = f; renderMain(); };
+    const openFolder = () => enterTopFolder(f);
+    row.querySelector('.folder-row-info').onclick = openFolder;
+    row.querySelector('.folder-emoji').onclick = openFolder;
 
     row.querySelector('[data-act="menu"]').onclick = (e) => {
       e.stopPropagation();
@@ -386,19 +438,19 @@ function renderFoldersView(main) {
       `;
       row.style.position = 'relative';
       row.appendChild(pop);
-      pop.querySelector('[data-act="open"]').onclick = () => { closeAllPopovers(); state.currentView = f; renderMain(); };
+      pop.querySelector('[data-act="open"]').onclick = () => { closeAllPopovers(); openFolder(); };
       pop.querySelector('[data-act="del"]').onclick = async () => {
         closeAllPopovers();
         const ok = await confirmDialog({
           title: 'Eliminar carpeta',
-          message: `¿Vaciar la carpeta "${escapeHtml(f.name)}" y todo su contenido? Esta acción es irreversible.`,
+          message: `¿Eliminar por completo la carpeta "${escapeHtml(f.name)}" (el grupo en Telegram) y todo su contenido? Esta acción es irreversible.`,
           confirmText: 'Eliminar',
           danger: true,
         });
         if (!ok) return;
         try {
-          await tg.deleteFolder(f.entity, f.id);
-          state.folders = state.folders.filter((x) => x.id !== f.id);
+          await tg.deleteTopFolder(f.id);
+          state.topFolders = state.topFolders.filter((x) => x.id !== f.id);
           toast('Carpeta eliminada');
           renderMain();
         } catch (e) {
@@ -409,23 +461,20 @@ function renderFoldersView(main) {
 
     list.appendChild(row);
   });
-
-  // Conteo real de archivos por carpeta (Topic), en paralelo.
-  state.folders.forEach(async (f) => {
-    try {
-      const count = await tg.countFiles(f.entity, f.id);
-      const row = [...list.children].find((r) => r.querySelector('.folder-row-name')?.textContent === f.name);
-      const metaEl = row?.querySelector('[data-count]');
-      if (metaEl) metaEl.textContent = count === 1 ? '1 archivo' : `${count} archivos`;
-    } catch {
-      const row = [...list.children].find((r) => r.querySelector('.folder-row-name')?.textContent === f.name);
-      const metaEl = row?.querySelector('[data-count]');
-      if (metaEl) metaEl.textContent = 'Carpeta (tema)';
-    }
-  });
 }
 
-async function createFolderFlow() {
+async function enterTopFolder(f) {
+  toast('Abriendo carpeta...');
+  try {
+    const entity = await tg.resolveFolderEntity(f.id);
+    state.path = [{ ...f, entity }];
+    renderMain();
+  } catch (e) {
+    toast('Error al abrir la carpeta: ' + e.message, 'error');
+  }
+}
+
+async function createTopFolderFlow() {
   const name = await promptDialog({
     title: 'Nueva carpeta',
     label: 'Nombre de la carpeta',
@@ -434,10 +483,10 @@ async function createFolderFlow() {
     iconName: 'folderPlus',
   });
   if (!name) return;
-  toast('Creando tema en Telegram...');
+  toast('Creando grupo en Telegram...');
   try {
-    const folder = await tg.createFolder(name);
-    state.folders.push(folder);
+    const folder = await tg.createTopFolder(name);
+    state.topFolders.push({ id: folder.id, name: folder.name });
     toast(`Carpeta "${name}" creada`);
     renderMain();
   } catch (e) {
@@ -446,137 +495,334 @@ async function createFolderFlow() {
   }
 }
 
-// ---------- Vista: contenido de una carpeta (Topic) o Mensajes guardados ----------
-async function renderChatView(main, target) {
-  const isFolder = target.entity !== undefined && target.type !== 'saved';
+// ---------- Vista: dentro de una carpeta de nivel superior ----------
+async function renderTopFolderView(main) {
+  const top = state.path[0];
   main.innerHTML = `
     <div class="breadcrumb">
-      <span class="crumb" data-nav="folders">📂 Inicio</span>
+      <span class="crumb" data-nav="home">📂 Inicio</span>
       <span class="sep">${icon('chevronRight', 13)}</span>
-      <span class="crumb current">${escapeHtml(target.name)}</span>
+      <span class="crumb current">${escapeHtml(top.name)}</span>
     </div>
-
     <div class="view-header">
-      <h2>${isFolder ? '📂' : `<span class="header-icon-box">${icon('save', 17)}</span>`} ${escapeHtml(target.name)}</h2>
-      ${isFolder ? `<button class="icon-btn" id="del-folder">${icon('trash', 18)}</button>` : ''}
+      <h2>📂 ${escapeHtml(top.name)}</h2>
+      <button class="icon-btn" id="del-top">${icon('trash', 18)}</button>
     </div>
 
-    <div class="upload-row" id="dropzone">
-      <div class="upload-icon-box">${icon('uploadCloud', 18)}</div>
-      <div>
-        <div class="upload-text">Subir archivo a "${escapeHtml(target.name)}"</div>
-        <div class="upload-sub">Toca aquí o arrastra un archivo</div>
-      </div>
-      <input type="file" id="file-input" style="display:none" multiple />
+    <div class="section-title">Subcarpetas</div>
+    <div class="folder-list" id="subfolder-list">
+      <div class="loading-full" style="min-height:80px"><span class="spinner">${icon('refresh', 20)}</span></div>
     </div>
 
-    <div class="section-title">Archivos</div>
-    <div id="file-list"><div class="loading-full" style="min-height:120px"><span class="spinner">${icon('refresh', 22)}</span></div></div>
+    <div id="files-area"></div>
   `;
 
-  main.querySelector('[data-nav="folders"]').onclick = () => { state.currentView = 'folders'; renderMain(); };
+  main.querySelector('[data-nav="home"]').onclick = () => { state.path = []; renderMain(); };
+  document.getElementById('del-top').onclick = async () => {
+    const ok = await confirmDialog({
+      title: 'Eliminar carpeta',
+      message: `¿Eliminar por completo la carpeta "${escapeHtml(top.name)}" y todo su contenido? Esta acción es irreversible.`,
+      confirmText: 'Eliminar',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await tg.deleteTopFolder(top.id);
+      state.topFolders = state.topFolders.filter((f) => f.id !== top.id);
+      state.path = [];
+      toast('Carpeta eliminada');
+      renderMain();
+    } catch (e) {
+      toast('Error al eliminar: ' + e.message, 'error');
+    }
+  };
 
-  const delBtn = document.getElementById('del-folder');
-  if (delBtn) {
-    delBtn.onclick = async () => {
-      const ok = await confirmDialog({
-        title: 'Eliminar carpeta',
-        message: `¿Vaciar la carpeta "${escapeHtml(target.name)}" y todo su contenido? Esta acción es irreversible.`,
-        confirmText: 'Eliminar',
-        danger: true,
-      });
-      if (!ok) return;
-      try {
-        await tg.deleteFolder(target.entity, target.id);
-        state.folders = state.folders.filter((f) => f.id !== target.id);
-        state.currentView = 'folders';
-        toast('Carpeta eliminada');
-        renderMain();
-      } catch (e) {
-        toast('Error al eliminar: ' + e.message, 'error');
-      }
-    };
-  }
-
-  const dropzone = document.getElementById('dropzone');
-  const fileInput = document.getElementById('file-input');
-  dropzone.onclick = () => fileInput.click();
-  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
-  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
-  dropzone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropzone.classList.remove('dragover');
-    handleFiles(e.dataTransfer.files, target, isFolder);
-  });
-  fileInput.onchange = () => handleFiles(fileInput.files, target, isFolder);
-
-  await loadFileList(target, isFolder);
+  await loadSubFolderList(top);
+  renderFilesArea(document.getElementById('files-area'), top.entity, tg.GENERAL_TOPIC_ID, top.name);
 }
 
-async function loadFileList(target, isFolder) {
-  const entity = isFolder ? target.entity : await tg.getSavedMessagesPeer();
-  const topicId = isFolder ? target.id : null;
-  const listEl = document.getElementById('file-list');
+async function loadSubFolderList(top) {
+  const list = document.getElementById('subfolder-list');
   try {
-    const files = await tg.listFiles(entity, topicId, 100);
-    if (files.length === 0) {
-      listEl.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon-box">${icon('inbox', 26)}</div>
-          <div class="empty-text">Aún no hay archivos aquí. Sube el primero arriba.</div>
-        </div>`;
+    const subFolders = await tg.listSubFolders(top.entity);
+    if (subFolders.length === 0) {
+      list.innerHTML = `<div class="empty-state" style="padding:18px 10px"><div class="empty-text">Aún no hay subcarpetas.</div></div>`;
       return;
     }
-    listEl.innerHTML = '';
-    files.sort((a, b) => b.date - a.date).forEach((f) => {
+    list.innerHTML = '';
+    subFolders.forEach((s) => {
       const row = document.createElement('div');
-      row.className = 'file-row';
+      row.className = 'folder-row';
       row.innerHTML = `
-        <div class="file-icon">${icon(iconForMime(f.mimeType, f.name), 19)}</div>
-        <div class="file-info">
-          <div class="file-name">${escapeHtml(f.name)}</div>
-          <div class="file-meta">${fmtSize(f.size)} · ${fmtDate(f.date)}</div>
+        <span class="folder-emoji">📁</span>
+        <div class="folder-row-info">
+          <div class="folder-row-name">${escapeHtml(s.name)}</div>
+          <div class="folder-row-meta">Subcarpeta (tema)</div>
         </div>
         <button class="icon-btn menu-trigger" data-act="menu">${icon('moreVertical', 18)}</button>
       `;
+      const open = () => { state.path = [top, s]; renderMain(); };
+      row.querySelector('.folder-row-info').onclick = open;
+      row.querySelector('.folder-emoji').onclick = open;
       row.querySelector('[data-act="menu"]').onclick = (e) => {
         e.stopPropagation();
         closeAllPopovers();
         const pop = document.createElement('div');
         pop.className = 'menu-popover';
         pop.innerHTML = `
-          <button class="menu-item" data-act="dl">${icon('download', 16)} Descargar</button>
-          <button class="menu-item danger" data-act="del">${icon('trash', 16)} Borrar</button>
+          <button class="menu-item" data-act="open">📁 Abrir</button>
+          <button class="menu-item danger" data-act="del">${icon('trash', 16)} Eliminar subcarpeta</button>
         `;
         row.style.position = 'relative';
         row.appendChild(pop);
-        pop.querySelector('[data-act="dl"]').onclick = () => { closeAllPopovers(); startDownload(entity, f); };
+        pop.querySelector('[data-act="open"]').onclick = () => { closeAllPopovers(); open(); };
         pop.querySelector('[data-act="del"]').onclick = async () => {
           closeAllPopovers();
           const ok = await confirmDialog({
-            title: 'Borrar archivo',
-            message: `¿Borrar "${escapeHtml(f.name)}"? Esta acción es irreversible.`,
-            confirmText: 'Borrar',
+            title: 'Eliminar subcarpeta',
+            message: `¿Vaciar la subcarpeta "${escapeHtml(s.name)}"? Esta acción es irreversible.`,
+            confirmText: 'Eliminar',
             danger: true,
           });
           if (!ok) return;
-          await tg.deleteFile(entity, f.messageId);
-          row.remove();
-          toast('Archivo borrado');
+          try {
+            await tg.deleteSubFolder(s.entity, s.id);
+            toast('Subcarpeta eliminada');
+            loadSubFolderList(top);
+          } catch (e) {
+            toast('Error al eliminar: ' + e.message, 'error');
+          }
         };
       };
-      listEl.appendChild(row);
+      list.appendChild(row);
     });
   } catch (e) {
-    console.error(e);
-    listEl.innerHTML = `<div class="empty-state"><div class="empty-icon-box">${icon('alert', 24)}</div><div class="empty-text">Error al cargar archivos: ${escapeHtml(e.message)}</div></div>`;
+    list.innerHTML = `<div class="empty-state"><div class="empty-text">Error al cargar subcarpetas: ${escapeHtml(e.message)}</div></div>`;
   }
 }
 
-async function handleFiles(fileListRaw, target, isFolder) {
+async function createSubFolderFlow(top) {
+  const name = await promptDialog({
+    title: 'Nueva subcarpeta',
+    label: 'Nombre de la subcarpeta',
+    placeholder: 'Ej: Capturas',
+    confirmText: 'Crear',
+    iconName: 'folderPlus',
+  });
+  if (!name) return;
+  toast('Creando tema en Telegram...');
+  try {
+    await tg.createSubFolder(top.entity, name);
+    toast(`Subcarpeta "${name}" creada`);
+    if (state.path.length === 1 && state.path[0].id === top.id) loadSubFolderList(top);
+  } catch (e) {
+    toast('Error al crear la subcarpeta: ' + e.message, 'error');
+  }
+}
+
+// ---------- Vista: dentro de una subcarpeta ----------
+async function renderSubFolderView(main) {
+  const [top, sub] = state.path;
+  main.innerHTML = `
+    <div class="breadcrumb">
+      <span class="crumb" data-nav="home">📂 Inicio</span>
+      <span class="sep">${icon('chevronRight', 13)}</span>
+      <span class="crumb" data-nav="top">${escapeHtml(top.name)}</span>
+      <span class="sep">${icon('chevronRight', 13)}</span>
+      <span class="crumb current">${escapeHtml(sub.name)}</span>
+    </div>
+    <div class="view-header">
+      <h2>📁 ${escapeHtml(sub.name)}</h2>
+      <button class="icon-btn" id="del-sub">${icon('trash', 18)}</button>
+    </div>
+    <div id="files-area"></div>
+  `;
+  main.querySelector('[data-nav="home"]').onclick = () => { state.path = []; renderMain(); };
+  main.querySelector('[data-nav="top"]').onclick = () => { state.path = [top]; renderMain(); };
+  document.getElementById('del-sub').onclick = async () => {
+    const ok = await confirmDialog({
+      title: 'Eliminar subcarpeta',
+      message: `¿Vaciar la subcarpeta "${escapeHtml(sub.name)}"? Esta acción es irreversible.`,
+      confirmText: 'Eliminar',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await tg.deleteSubFolder(sub.entity, sub.id);
+      state.path = [top];
+      toast('Subcarpeta eliminada');
+      renderMain();
+    } catch (e) {
+      toast('Error al eliminar: ' + e.message, 'error');
+    }
+  };
+  renderFilesArea(document.getElementById('files-area'), sub.entity, sub.id, sub.name);
+}
+
+// ---------- Sección reutilizable: dropzone + lista de archivos (con selección múltiple) ----------
+function renderFilesArea(container, entity, topicId, label) {
+  container.innerHTML = `
+    <div class="upload-row" id="dropzone">
+      <div class="upload-icon-box">${icon('uploadCloud', 18)}</div>
+      <div>
+        <div class="upload-text">Subir archivo a "${escapeHtml(label)}"</div>
+        <div class="upload-sub">Toca aquí o arrastra un archivo (cualquier tipo)</div>
+      </div>
+    </div>
+    <div class="section-title-row">
+      <div class="section-title">Archivos</div>
+      <button class="select-toggle-btn" id="btn-select-toggle">${icon('checkSquare', 15)} Seleccionar</button>
+    </div>
+    <div id="file-list"><div class="loading-full" style="min-height:120px"><span class="spinner">${icon('refresh', 22)}</span></div></div>
+  `;
+
+  const dropzone = container.querySelector('#dropzone');
+  dropzone.onclick = async () => {
+    const files = await pickFiles({ accept: '' });
+    await handleFiles(files, entity, topicId, () => loadFileList());
+  };
+  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files, entity, topicId, () => loadFileList());
+  });
+
+  let selectMode = false;
+  const selected = new Map(); // messageId -> file
+
+  container.querySelector('#btn-select-toggle').onclick = () => {
+    selectMode = !selectMode;
+    selected.clear();
+    removeSelectionBar();
+    loadFileList();
+  };
+
+  function removeSelectionBar() {
+    document.querySelectorAll('.selection-bar').forEach((el) => el.remove());
+  }
+
+  function updateSelectionBar() {
+    removeSelectionBar();
+    if (!selectMode || selected.size === 0) return;
+    const bar = document.createElement('div');
+    bar.className = 'selection-bar';
+    bar.innerHTML = `
+      <span class="sel-count">${selected.size} seleccionado(s)</span>
+      <button data-act="dl">${icon('download', 15)} Descargar</button>
+      <button class="danger" data-act="del">${icon('trash', 15)} Borrar</button>
+      <button class="cancel" data-act="cancel">Cancelar</button>
+    `;
+    document.body.appendChild(bar);
+    bar.querySelector('[data-act="dl"]').onclick = async () => {
+      for (const f of selected.values()) await startDownload(entity, f);
+      toast('Descarga(s) iniciada(s)');
+    };
+    bar.querySelector('[data-act="del"]').onclick = async () => {
+      const ok = await confirmDialog({
+        title: 'Borrar archivos',
+        message: `¿Borrar ${selected.size} archivo(s)? Esta acción es irreversible.`,
+        confirmText: 'Borrar',
+        danger: true,
+      });
+      if (!ok) return;
+      for (const f of selected.values()) {
+        try { await tg.deleteFile(entity, f.messageId); } catch { /* seguimos con el resto */ }
+      }
+      toast('Archivos borrados');
+      selectMode = false;
+      selected.clear();
+      removeSelectionBar();
+      loadFileList();
+    };
+    bar.querySelector('[data-act="cancel"]').onclick = () => {
+      selectMode = false;
+      selected.clear();
+      removeSelectionBar();
+      loadFileList();
+    };
+  }
+
+  async function loadFileList() {
+    const listEl = container.querySelector('#file-list');
+    listEl.innerHTML = `<div class="loading-full" style="min-height:120px"><span class="spinner">${icon('refresh', 22)}</span></div>`;
+    try {
+      const files = await tg.listFiles(entity, topicId, 100);
+      if (files.length === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon-box">${icon('inbox', 26)}</div>
+            <div class="empty-text">Aún no hay archivos aquí. Sube el primero arriba.</div>
+          </div>`;
+        return;
+      }
+      listEl.innerHTML = '';
+      files.sort((a, b) => b.date - a.date).forEach((f) => {
+        const row = document.createElement('div');
+        row.className = 'file-row' + (selectMode ? ' selectable' : '');
+        row.innerHTML = `
+          ${selectMode ? `<span class="row-checkbox">${icon('square', 20)}</span>` : `<div class="file-icon">${icon(iconForMime(f.mimeType, f.name), 19)}</div>`}
+          <div class="file-info">
+            <div class="file-name">${escapeHtml(f.name)}</div>
+            <div class="file-meta">${fmtSize(f.size)} · ${fmtDate(f.date)}</div>
+          </div>
+          ${selectMode ? '' : `<button class="icon-btn menu-trigger" data-act="menu">${icon('moreVertical', 18)}</button>`}
+        `;
+        if (selectMode) {
+          row.onclick = () => {
+            if (selected.has(f.messageId)) {
+              selected.delete(f.messageId);
+              row.classList.remove('selected');
+              row.querySelector('.row-checkbox').innerHTML = icon('square', 20);
+            } else {
+              selected.set(f.messageId, f);
+              row.classList.add('selected');
+              row.querySelector('.row-checkbox').innerHTML = icon('checkSquare', 20);
+            }
+            updateSelectionBar();
+          };
+        } else {
+          row.querySelector('[data-act="menu"]').onclick = (e) => {
+            e.stopPropagation();
+            closeAllPopovers();
+            const pop = document.createElement('div');
+            pop.className = 'menu-popover';
+            pop.innerHTML = `
+              <button class="menu-item" data-act="dl">${icon('download', 16)} Descargar</button>
+              <button class="menu-item danger" data-act="del">${icon('trash', 16)} Borrar</button>
+            `;
+            row.style.position = 'relative';
+            row.appendChild(pop);
+            pop.querySelector('[data-act="dl"]').onclick = () => { closeAllPopovers(); startDownload(entity, f); };
+            pop.querySelector('[data-act="del"]').onclick = async () => {
+              closeAllPopovers();
+              const ok = await confirmDialog({
+                title: 'Borrar archivo',
+                message: `¿Borrar "${escapeHtml(f.name)}"? Esta acción es irreversible.`,
+                confirmText: 'Borrar',
+                danger: true,
+              });
+              if (!ok) return;
+              await tg.deleteFile(entity, f.messageId);
+              row.remove();
+              toast('Archivo borrado');
+            };
+          };
+        }
+        listEl.appendChild(row);
+      });
+    } catch (e) {
+      console.error(e);
+      listEl.innerHTML = `<div class="empty-state"><div class="empty-icon-box">${icon('alert', 24)}</div><div class="empty-text">Error al cargar archivos: ${escapeHtml(e.message)}</div></div>`;
+    }
+  }
+
+  loadFileList();
+}
+
+async function handleFiles(fileListRaw, entity, topicId, onDone) {
   if (!fileListRaw || fileListRaw.length === 0) return;
-  const entity = isFolder ? target.entity : await tg.getSavedMessagesPeer();
-  const topicId = isFolder ? target.id : null;
   const files = Array.from(fileListRaw);
   for (const file of files) {
     const transferId = crypto.randomUUID();
@@ -591,9 +837,7 @@ async function handleFiles(fileListRaw, target, isFolder) {
       toast(`Error al subir "${file.name}": ${e.message}`, 'error');
     }
   }
-  if (state.activeTab === 'home' && (state.currentView === target || state.currentView === 'saved')) {
-    await loadFileList(target, isFolder);
-  }
+  if (onDone) onDone();
 }
 
 async function startDownload(entity, file) {
@@ -631,39 +875,234 @@ function renderDownloadsView(main) {
 // ---------- Vista: Multimedia (pestaña inferior) ----------
 async function renderMediaView(main) {
   main.innerHTML = `
-    <div class="view-header"><h2>Multimedia</h2></div>
+    <div class="section-title-row" style="padding:14px 16px 0">
+      <h2 style="font-size:16px">Multimedia</h2>
+      <button class="select-toggle-btn" id="btn-media-select">${icon('checkSquare', 15)} Seleccionar</button>
+    </div>
     <div class="loading-full" style="min-height:160px"><span class="spinner">${icon('refresh', 22)}</span><span>Buscando fotos y vídeos...</span></div>
   `;
+  let items;
   try {
-    const items = await tg.listAllMedia(state.folders, 24);
-    if (items.length === 0) {
-      main.querySelector('.loading-full').outerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon-box">${icon('image', 24)}</div>
-          <div class="empty-text">Aún no hay fotos ni vídeos en tus carpetas.</div>
-        </div>`;
-      return;
-    }
-    main.querySelector('.loading-full').outerHTML = `<div class="media-grid" id="media-grid"></div>`;
-    const grid = document.getElementById('media-grid');
-    for (const item of items) {
-      const cell = document.createElement('div');
-      cell.className = 'media-cell';
-      cell.innerHTML = `<div class="media-placeholder">${icon(item.isVideo ? 'video' : 'image', 20)}</div>`;
-      grid.appendChild(cell);
-      cell.onclick = () => startDownload(null, item);
-      tg.downloadFile(item.rawMessage, () => {}).then((buffer) => {
-        const blob = new Blob([buffer]);
-        const url = URL.createObjectURL(blob);
-        cell.innerHTML = item.isVideo
-          ? `<video src="${url}" muted></video>`
-          : `<img src="${url}" alt="${escapeHtml(item.name)}" loading="lazy" />`;
-      }).catch(() => {});
-    }
+    items = await tg.listAllMedia(state.topFolders);
   } catch (e) {
     console.error(e);
     main.querySelector('.loading-full').outerHTML = `<div class="empty-state"><div class="empty-icon-box">${icon('alert', 24)}</div><div class="empty-text">Error al cargar multimedia: ${escapeHtml(e.message)}</div></div>`;
+    return;
   }
+  if (items.length === 0) {
+    main.querySelector('.loading-full').outerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon-box">${icon('image', 24)}</div>
+        <div class="empty-text">Aún no hay fotos ni vídeos en tus carpetas.</div>
+      </div>`;
+    return;
+  }
+  main.querySelector('.loading-full').outerHTML = `<div class="media-grid" id="media-grid"></div>`;
+  const grid = document.getElementById('media-grid');
+
+  let selectMode = false;
+  const selected = new Map();
+  const blobCache = new Map(); // messageId -> {url, blob}
+
+  function removeSelectionBar() {
+    document.querySelectorAll('.selection-bar').forEach((el) => el.remove());
+  }
+  function updateSelectionBar() {
+    removeSelectionBar();
+    if (!selectMode || selected.size === 0) return;
+    const bar = document.createElement('div');
+    bar.className = 'selection-bar';
+    bar.innerHTML = `
+      <span class="sel-count">${selected.size} seleccionado(s)</span>
+      <button data-act="dl">${icon('download', 15)} Descargar</button>
+      <button class="danger" data-act="del">${icon('trash', 15)} Borrar</button>
+      <button class="cancel" data-act="cancel">Cancelar</button>
+    `;
+    document.body.appendChild(bar);
+    bar.querySelector('[data-act="dl"]').onclick = async () => {
+      for (const it of selected.values()) await startDownload(it.entity, it);
+      toast('Descarga(s) iniciada(s)');
+    };
+    bar.querySelector('[data-act="del"]').onclick = async () => {
+      const ok = await confirmDialog({
+        title: 'Borrar archivos',
+        message: `¿Borrar ${selected.size} archivo(s)? Esta acción es irreversible.`,
+        confirmText: 'Borrar',
+        danger: true,
+      });
+      if (!ok) return;
+      for (const it of selected.values()) {
+        try { await tg.deleteFile(it.entity, it.messageId); } catch { /* seguimos */ }
+      }
+      toast('Archivos borrados');
+      renderMediaView(main);
+    };
+    bar.querySelector('[data-act="cancel"]').onclick = () => {
+      selectMode = false;
+      selected.clear();
+      removeSelectionBar();
+      document.querySelectorAll('.media-cell.selected').forEach((c) => c.classList.remove('selected'));
+    };
+  }
+
+  document.getElementById('btn-media-select').onclick = () => {
+    selectMode = !selectMode;
+    selected.clear();
+    removeSelectionBar();
+    document.querySelectorAll('.media-cell.selected').forEach((c) => c.classList.remove('selected'));
+  };
+
+  for (const item of items) {
+    const cell = document.createElement('div');
+    cell.className = 'media-cell';
+    cell.innerHTML = `<div class="media-placeholder">${icon(item.isVideo ? 'video' : 'image', 20)}</div>`;
+    grid.appendChild(cell);
+
+    cell.onclick = () => {
+      if (selectMode) {
+        if (selected.has(item.messageId)) {
+          selected.delete(item.messageId);
+          cell.classList.remove('selected');
+        } else {
+          selected.set(item.messageId, item);
+          cell.classList.add('selected');
+        }
+        updateSelectionBar();
+        return;
+      }
+      openLightbox(item, blobCache.get(item.messageId));
+    };
+
+    tg.downloadFile(item.rawMessage, () => {}).then((buffer) => {
+      const blob = new Blob([buffer]);
+      const url = URL.createObjectURL(blob);
+      blobCache.set(item.messageId, { url, blob });
+      if (item.isVideo) {
+        const video = document.createElement('video');
+        video.src = url;
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        video.addEventListener('loadeddata', () => {
+          try {
+            const c = document.createElement('canvas');
+            c.width = video.videoWidth || 320;
+            c.height = video.videoHeight || 240;
+            c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+            cell.innerHTML = `<img src="${c.toDataURL('image/jpeg', 0.6)}" alt="${escapeHtml(item.name)}" /><span class="video-badge">${icon('playCircle', 20)}</span>`;
+          } catch {
+            cell.innerHTML = `<img src="" alt="" /><span class="video-badge">${icon('playCircle', 20)}</span>`;
+          }
+        }, { once: true });
+        video.currentTime = 0.1;
+      } else {
+        cell.innerHTML = `<img src="${url}" alt="${escapeHtml(item.name)}" loading="lazy" />`;
+      }
+    }).catch(() => {});
+  }
+}
+
+function openLightbox(item, cached) {
+  const root = document.createElement('div');
+  root.className = 'lightbox-overlay';
+  root.innerHTML = `
+    <div class="lightbox-top"><button id="lb-close">${icon('x', 18)}</button></div>
+    <div class="lightbox-stage" id="lb-stage">
+      <span class="spinner">${icon('refresh', 24)}</span>
+    </div>
+    <div class="lightbox-actions">
+      <button id="lb-download">${icon('download', 16)} Descargar</button>
+      <button class="danger" id="lb-delete">${icon('trash', 16)} Eliminar</button>
+    </div>
+  `;
+  document.body.appendChild(root);
+  requestAnimationFrame(() => root.classList.add('open'));
+
+  const close = () => { root.classList.remove('open'); setTimeout(() => root.remove(), 180); };
+  root.querySelector('#lb-close').onclick = close;
+
+  async function getUrl() {
+    if (cached) return cached.url;
+    const buffer = await tg.downloadFile(item.rawMessage, () => {});
+    const blob = new Blob([buffer]);
+    return URL.createObjectURL(blob);
+  }
+
+  getUrl().then((url) => {
+    const stage = root.querySelector('#lb-stage');
+    stage.innerHTML = item.isVideo
+      ? `<video src="${url}" controls autoplay playsinline></video>`
+      : `<img src="${url}" alt="${escapeHtml(item.name)}" />`;
+  });
+
+  root.querySelector('#lb-download').onclick = () => startDownload(item.entity, item);
+  root.querySelector('#lb-delete').onclick = async () => {
+    const ok = await confirmDialog({
+      title: 'Eliminar archivo',
+      message: `¿Borrar "${escapeHtml(item.name)}"? Esta acción es irreversible.`,
+      confirmText: 'Borrar',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await tg.deleteFile(item.entity, item.messageId);
+      toast('Archivo borrado');
+      close();
+      renderMain();
+    } catch (e) {
+      toast('Error al borrar: ' + e.message, 'error');
+    }
+  };
+}
+
+// ---------- Subida directa desde la pestaña Multimedia ----------
+async function mediaUploadFlow() {
+  if (state.topFolders.length === 0) {
+    toast('Primero crea una carpeta desde Inicio', 'error');
+    return;
+  }
+  const options = [];
+  for (const top of state.topFolders) {
+    options.push({ label: `📂 ${top.name}`, value: { id: top.id, name: top.name } });
+  }
+  const chosenTop = await selectDialog({
+    title: 'Subir a...',
+    iconName: 'uploadCloud',
+    options,
+    emptyText: 'Primero crea una carpeta desde Inicio.',
+  });
+  if (!chosenTop) return;
+
+  toast('Abriendo carpeta...');
+  let entity;
+  try {
+    entity = await tg.resolveFolderEntity(chosenTop.id);
+  } catch (e) {
+    toast('Error al abrir la carpeta: ' + e.message, 'error');
+    return;
+  }
+
+  let topicId = tg.GENERAL_TOPIC_ID;
+  try {
+    const subFolders = await tg.listSubFolders(entity);
+    if (subFolders.length > 0) {
+      const subOptions = [{ label: `📂 Raíz de "${chosenTop.name}"`, value: tg.GENERAL_TOPIC_ID }];
+      subFolders.forEach((s) => subOptions.push({ label: `📁 ${s.name}`, value: s.id }));
+      const chosenId = await selectDialog({
+        title: 'Elige la subcarpeta',
+        iconName: 'uploadCloud',
+        options: subOptions,
+      });
+      if (chosenId === null || chosenId === undefined) return;
+      topicId = chosenId;
+    }
+  } catch {
+    // si falla la carga de subcarpetas, subimos a la raíz igualmente
+  }
+
+  const files = await pickFiles({ accept: 'image/*,video/*' });
+  if (!files || files.length === 0) return;
+  await handleFiles(files, entity, topicId, () => { if (state.activeTab === 'media') renderMain(); });
 }
 
 // ---------- Transferencias (subidas/descargas) ----------

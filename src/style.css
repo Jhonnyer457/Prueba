@@ -21,6 +21,7 @@
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --bg-translucent: rgba(0,0,0,0.9);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -53,7 +54,7 @@ svg { display: block; flex-shrink: 0; }
   border-bottom: 1px solid var(--border-soft);
   position: sticky;
   top: 0;
-  background: rgba(0,0,0,0.9);
+  background: var(--bg-translucent);
   backdrop-filter: blur(14px);
   z-index: 30;
 }
@@ -706,6 +707,7 @@ body.theme-light {
   --text-faint: #9a93ab;
   --success: #059669;
   --error: #dc2626;
+  --bg-translucent: rgba(247,245,252,0.85);
 }
 body.theme-light #starfield { opacity: 0.4; }
 
@@ -793,3 +795,127 @@ body.theme-light #starfield { opacity: 0.4; }
   width: 100%; height: 100%; object-fit: cover;
 }
 .media-placeholder { color: var(--text-faint); }
+.media-cell { position: relative; }
+.media-cell .video-badge {
+  position: absolute; right: 4px; bottom: 4px;
+  color: #fff; filter: drop-shadow(0 0 3px rgba(0,0,0,0.7));
+  pointer-events: none;
+}
+.media-cell .select-check {
+  position: absolute; top: 5px; left: 5px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0,0,0,0.45);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.media-cell.selected { outline: 2.5px solid var(--violet-strong); outline-offset: -2.5px; }
+.media-cell.selected .select-check { background: var(--violet-strong); }
+
+/* ================= Modal: lista de opciones (selector de carpeta) ================= */
+.modal-option-list { display: flex; flex-direction: column; gap: 6px; max-height: 45vh; overflow-y: auto; }
+.modal-option {
+  text-align: left; padding: 12px 14px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text);
+  font-family: var(--font-body); font-size: 14.5px; font-weight: 500;
+  cursor: pointer;
+}
+.modal-option:hover, .modal-option:active { background: var(--bg-hover); border-color: var(--violet-dim); }
+
+/* ================= FAB: popover contextual ================= */
+.fab-popover {
+  position: fixed;
+  right: 18px;
+  bottom: calc(78px + var(--safe-bottom) + 78px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+  overflow: hidden;
+  z-index: 45;
+  min-width: 200px;
+}
+.fab-popover button {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 13px 16px;
+  background: none; border: none; color: var(--text);
+  font-family: var(--font-body); font-size: 14px; text-align: left; cursor: pointer;
+}
+.fab-popover button:hover, .fab-popover button:active { background: var(--bg-hover); color: var(--violet); }
+
+/* ================= Selección múltiple en listas de archivos ================= */
+.section-title-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 2px;
+}
+.select-toggle-btn {
+  display: flex; align-items: center; gap: 6px;
+  background: none; border: none; color: var(--violet);
+  font-family: var(--font-body); font-size: 13px; font-weight: 600; cursor: pointer;
+  padding: 4px 6px;
+}
+.file-row.selectable { cursor: pointer; }
+.file-row .row-checkbox { color: var(--text-faint); flex-shrink: 0; }
+.file-row.selected { background: var(--violet-wash); }
+.file-row.selected .row-checkbox { color: var(--violet-strong); }
+
+.selection-bar {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: calc(78px + var(--safe-bottom));
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  z-index: 35;
+}
+.selection-bar .sel-count { flex: 1; font-size: 13.5px; color: var(--text-dim); font-weight: 600; }
+.selection-bar button {
+  display: flex; align-items: center; gap: 6px;
+  padding: 9px 13px;
+  border-radius: var(--radius-sm);
+  border: none; cursor: pointer;
+  font-family: var(--font-body); font-size: 13px; font-weight: 600;
+  background: var(--bg-card); color: var(--text);
+}
+.selection-bar button.danger { color: var(--error); }
+.selection-bar button.cancel { background: none; color: var(--text-faint); }
+
+/* ================= Visor de multimedia (lightbox) ================= */
+.lightbox-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.92);
+  z-index: 60;
+  display: flex; flex-direction: column;
+  opacity: 0; pointer-events: none;
+  transition: opacity .18s;
+}
+.lightbox-overlay.open { opacity: 1; pointer-events: auto; }
+.lightbox-top {
+  display: flex; justify-content: flex-end;
+  padding: calc(14px + var(--safe-top)) 14px 10px;
+}
+.lightbox-top button {
+  background: rgba(255,255,255,0.12); border: none; border-radius: 50%;
+  width: 38px; height: 38px; color: #fff;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.lightbox-stage {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  min-height: 0; padding: 0 10px;
+}
+.lightbox-stage img, .lightbox-stage video {
+  max-width: 100%; max-height: 100%; border-radius: 8px;
+}
+.lightbox-actions {
+  display: flex; gap: 10px;
+  padding: 14px 18px calc(20px + var(--safe-bottom));
+}
+.lightbox-actions button {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 13px; border-radius: var(--radius); border: none; cursor: pointer;
+  font-family: var(--font-body); font-size: 14px; font-weight: 600;
+  background: rgba(255,255,255,0.1); color: #fff;
+}
+.lightbox-actions button.danger { color: #fca5a5; }

@@ -48,6 +48,30 @@ export function confirmDialog({ title, message, confirmText = 'Aceptar', cancelT
   });
 }
 
+export function selectDialog({ title, options, emptyText = 'No hay opciones disponibles.', iconName = 'folder' }) {
+  return new Promise((resolve) => {
+    if (!options || options.length === 0) {
+      const root = buildShell(iconName, title, `<p>${emptyText}</p>`);
+      const actions = document.getElementById('modal-actions');
+      actions.innerHTML = `<button class="btn" id="modal-confirm">Entendido</button>`;
+      document.getElementById('modal-confirm').onclick = () => { closeModal(root); resolve(null); };
+      return;
+    }
+    const listHtml = options
+      .map((opt, i) => `<button class="modal-option" data-i="${i}">${opt.label}</button>`)
+      .join('');
+    const root = buildShell(iconName, title, `<div class="modal-option-list">${listHtml}</div>`);
+    document.getElementById('modal-actions').innerHTML = `<button class="btn btn-ghost" id="modal-cancel">Cancelar</button>`;
+    root.querySelectorAll('.modal-option').forEach((btn) => {
+      btn.onclick = () => { closeModal(root); resolve(options[Number(btn.dataset.i)].value); };
+    });
+    document.getElementById('modal-cancel').onclick = () => { closeModal(root); resolve(null); };
+    root.querySelector('.modal-overlay').onclick = (e) => {
+      if (e.target.id === 'modal-overlay') { closeModal(root); resolve(null); }
+    };
+  });
+}
+
 export function promptDialog({ title, label, placeholder = '', confirmText = 'Crear', iconName = 'folderPlus' }) {
   return new Promise((resolve) => {
     const root = buildShell(iconName, title, `
